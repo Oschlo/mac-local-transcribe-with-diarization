@@ -1,0 +1,6 @@
+mlx-whisper
+pyannote.audio==4.0.5
+torch
+torchaudio
+soundfile
+numpy
