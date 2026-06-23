@@ -1,6 +1,11 @@
+# --- mlx-motoren (lokal, standard) ---
 mlx-whisper
 pyannote.audio==4.0.5
 torch
 torchaudio
 soundfile
 numpy
+
+# --- soniox-motoren (sky, valgfri) ---
+# Trengs kun for `--engine soniox` og stream.py. mlx-only-brukere kan droppe den.
+# pip install soniox

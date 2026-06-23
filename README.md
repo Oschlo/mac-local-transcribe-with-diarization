@@ -59,6 +59,55 @@ export HF_TOKEN="hf_..."   # your read token
 After the first run, set `HF_HUB_OFFLINE=1` to guarantee nothing touches the
 network.
 
+## Transcription engines
+
+Two engines, selected with `--engine`:
+
+| Engine | Where | Speaker split | Language | HF token |
+|--------|-------|---------------|----------|----------|
+| `mlx` (default) | local / offline | pyannote diarization | **per-speaker locking** (NO↔SV) | required |
+| `soniox` | cloud | Soniox cloud diarization, or one channel per speaker | Norwegian-tuned, single language | not needed |
+
+Use `mlx` when you need offline processing or per-speaker language locking
+(the original use case). Use `soniox` for Norwegian recordings/calls where you
+want a fast cloud transcription without the gated HF models — or for **live**
+transcription (see `stream.py`).
+
+### Soniox setup
+
+```zsh
+pip install soniox                      # SDK (only needed for soniox / stream.py)
+mkdir -p ~/.soniox && echo "YOUR_KEY" > ~/.soniox/api-key   # or export SONIOX_API_KEY
+```
+
+### Soniox — batch (a recording → transcript)
+
+```zsh
+# mixed recording → Soniox cloud diarization (no HF token):
+.venv/bin/python transcribe.py "recording.mp4" --engine soniox
+
+# two mono files, one known speaker each (must share a clock / recorded together):
+.venv/bin/python transcribe.py out.md --engine soniox --dual motpart.wav meg.wav
+```
+
+Outputs are the same `.txt` / `.srt` / `.json` as the `mlx` engine.
+
+### Soniox — realtime (live call)
+
+`stream.py` transcribes a live Mac call as it happens. Two sources, each its own
+Soniox realtime session, so no diarization is needed:
+
+- `helen_systemtap` (bundled Swift binary) captures the **other party**
+- the **microphone** (ffmpeg / avfoundation) captures **you**
+
+```zsh
+.venv/bin/python stream.py [out.md]     # prints live; Ctrl-C writes the merged transcript
+```
+
+macOS-only (CoreAudio system tap). Override the mic with `STREAM_MIC_DEVICE` and
+the binary path with `HELEN_SYSTEMTAP`. Rebuild the tap from
+`helen_systemtap.swift` if needed.
+
 ### Outputs (next to the input file)
 
 | File | What |

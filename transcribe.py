@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
-"""Lokal transkripsjon med diarization og språk-låsing per taler.
+"""Transkripsjon med valgbar motor.
+
+Motorer (--engine):
+    mlx     (standard) lokal/offline: pyannote-diarisering + mlx-whisper med
+            språk-låsing per taler (NO<->SV). Krever HF-token + gated modeller.
+    soniox  sky: norsk-tunet, ingen HF-token. Talere skilles enten via Soniox'
+            egen sky-diarisering, eller via --dual (én mono-fil per taler).
 
 Bruk:
-    python transcribe.py "fil.mp4" [--speakers N]
+    python transcribe.py "fil.mp4" [--speakers N]                # mlx (lokal)
+    python transcribe.py "fil.mp4" --engine soniox               # sky-diarisering
+    python transcribe.py out.md --engine soniox --dual motpart.wav meg.wav
 
-Mellomresultater caches ved siden av input (slett dem for å kjøre på nytt):
+Mellomresultater (kun mlx) caches ved siden av input (slett for ny kjøring):
     fil.wav                 16 kHz mono lyd
     fil.diar.json           diarization (tregt steget — caches alltid)
     fil.speaker_lang.json   {taler: språk} — REDIGERBAR, leses ved ny kjøring
 
-Output:
+Output (begge motorer):
     fil.txt  fil.srt  fil.json
 """
 import sys, os, json, subprocess, argparse
@@ -116,15 +124,8 @@ def write_outputs(segs, base):
                     f"{s['speaker']} ({s['language']}): {s['text']}\n\n")
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("src")
-    ap.add_argument("--speakers", type=int, default=None, help="antall talere hvis kjent")
-    args = ap.parse_args()
-
-    base = os.path.splitext(args.src)[0]
+def run_mlx(args, base):
     wav = base + ".wav"
-
     print("1/4 lyd…")
     extract_audio(args.src, wav)
     print("2/4 diarization…")
@@ -135,7 +136,37 @@ def main():
     print("3/4 språk per taler…")
     langs = detect_languages(audio, segs, base + ".speaker_lang.json")
     print("4/4 transkriberer…")
-    out = transcribe_segments(audio, segs, langs)
+    return transcribe_segments(audio, segs, langs)
+
+
+def run_soniox(args, base):
+    import soniox_engine
+    if args.dual:
+        if len(args.dual) != 2:
+            sys.exit("--dual tar nøyaktig to filer: <motpart.wav> <meg.wav>")
+        print("soniox (dual-kanal)…")
+        return soniox_engine.transcribe_dual(
+            [(args.dual[0], "SPEAKER_00"), (args.dual[1], "SPEAKER_01")],
+            language=args.language)
+    print("soniox (sky-diarisering)…")
+    return soniox_engine.transcribe_diarized(args.src, language=args.language)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("src", help="lydfil (mlx/soniox), eller output-basenavn ved --dual")
+    ap.add_argument("--engine", choices=["mlx", "soniox"], default="mlx",
+                    help="transkriberings-motor (standard: mlx, lokal)")
+    ap.add_argument("--speakers", type=int, default=None,
+                    help="antall talere hvis kjent (kun mlx)")
+    ap.add_argument("--dual", nargs=2, metavar=("MOTPART", "MEG"),
+                    help="soniox: to mono-filer, én taler per fil")
+    ap.add_argument("--language", default="no",
+                    help="soniox språk-hint (kun mlx låser språk per taler)")
+    args = ap.parse_args()
+
+    base = os.path.splitext(args.src)[0]
+    out = run_soniox(args, base) if args.engine == "soniox" else run_mlx(args, base)
     write_outputs(out, base)
     print(f"\nFerdig: {base}.txt / .srt / .json")
 
