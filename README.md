@@ -71,6 +71,11 @@ Put videos in `input/`, then:
 for f in input/*.mp4; do .venv/bin/python transcribe.py "$f"; done
 ```
 
+Each step reports progress: diarization shows per-substep bars, language
+detection shows `taler i/N`, the transcription loop is a percent/ETA bar, and a
+per-step timing summary prints at the end. In a real terminal the bars update
+live; piped to a file they back off to occasional lines.
+
 After the first run, set `HF_HUB_OFFLINE=1` to guarantee nothing touches the
 network.
 
