@@ -47,27 +47,42 @@ uv pip install --python .venv/bin/python -r requirements.txt
 export HF_TOKEN="hf_..."   # your read token
 ```
 
+## Folder layout
+
+```
+input/    your *.mp4 source videos
+work/     intermediates: *.wav, *.diar.json, *.speaker_lang.json
+output/   deliverables:  *.txt, *.srt, *.json
+```
+
+`work/` and `output/` are created automatically. All three are git-ignored.
+
 ## Usage
 
+Put videos in `input/`, then:
+
 ```zsh
-.venv/bin/python transcribe.py "recording.mp4"
+.venv/bin/python transcribe.py "input/recording.mp4"
 
 # if you know the speaker count, it improves diarization:
-.venv/bin/python transcribe.py "recording.mp4" --speakers 2
+.venv/bin/python transcribe.py "input/recording.mp4" --speakers 2
+
+# all of them:
+for f in input/*.mp4; do .venv/bin/python transcribe.py "$f"; done
 ```
 
 After the first run, set `HF_HUB_OFFLINE=1` to guarantee nothing touches the
 network.
 
-### Outputs (next to the input file)
+### Outputs
 
 | File | What |
 |------|------|
-| `recording.diar.json` | diarization result (cached; delete to re-diarize) |
-| `recording.speaker_lang.json` | `{speaker: language}` — **edit this** if a language was mis-detected, then re-run |
-| `recording.txt` | readable transcript, one line per segment with speaker + language + timestamp |
-| `recording.srt` | subtitles |
-| `recording.json` | full structured output (start, end, speaker, language, text) |
+| `work/recording.diar.json` | diarization result (cached; delete to re-diarize) |
+| `work/recording.speaker_lang.json` | `{speaker: language}` — **edit this** if a language was mis-detected, then re-run |
+| `output/recording.txt` | readable transcript, one line per segment with speaker + language + timestamp |
+| `output/recording.srt` | subtitles |
+| `output/recording.json` | full structured output (start, end, speaker, language, text) |
 
 Example `.txt`:
 
@@ -78,7 +93,7 @@ Example `.txt`:
 
 ### Fixing a mis-detected language
 
-If step 3 maps a speaker to the wrong language, edit `recording.speaker_lang.json`:
+If step 3 maps a speaker to the wrong language, edit `work/recording.speaker_lang.json`:
 
 ```json
 { "SPEAKER_00": "sv", "SPEAKER_01": "no" }

@@ -3,20 +3,7 @@
 __pycache__/
 *.pyc
 
-# media (input)
-*.mp4
-*.mov
-*.m4a
-*.wav
-
-# intermediates + transcript outputs (all derived from input)
-*.diar.json
-*.speaker_lang.json
-*.json
-*.srt
-*.txt
-test_clip.*
-
-# keep these despite the broad ignores above
-!requirements.txt
-!.gitignore
+# data dirs (media + derived intermediates + transcript outputs)
+input/
+work/
+output/

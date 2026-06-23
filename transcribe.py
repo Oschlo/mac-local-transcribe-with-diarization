@@ -2,21 +2,23 @@
 """Lokal transkripsjon med diarization og språk-låsing per taler.
 
 Bruk:
-    python transcribe.py "fil.mp4" [--speakers N]
+    python transcribe.py "input/fil.mp4" [--speakers N]
 
-Mellomresultater caches ved siden av input (slett dem for å kjøre på nytt):
-    fil.wav                 16 kHz mono lyd
-    fil.diar.json           diarization (tregt steget — caches alltid)
-    fil.speaker_lang.json   {taler: språk} — REDIGERBAR, leses ved ny kjøring
+Mellomresultater caches i work/ (slett dem for å kjøre på nytt):
+    work/fil.wav                 16 kHz mono lyd
+    work/fil.diar.json           diarization (tregt steget — caches alltid)
+    work/fil.speaker_lang.json   {taler: språk} — REDIGERBAR, leses ved ny kjøring
 
-Output:
-    fil.txt  fil.srt  fil.json
+Output i output/:
+    output/fil.txt  output/fil.srt  output/fil.json
 """
 import sys, os, json, subprocess, argparse
 import numpy as np
 import soundfile as sf
 
 MODEL = "mlx-community/whisper-large-v3-mlx"
+WORK_DIR = "work"      # mellomresultater: wav, diarization-cache, språk-map
+OUTPUT_DIR = "output"  # leveranser: txt, srt, json
 SR = 16000
 MERGE_GAP = 0.75   # slå sammen nabosegmenter fra samme taler med mindre opphold (s)
 MIN_SEG = 0.4      # hopp over segmenter kortere enn dette (s)
@@ -122,22 +124,25 @@ def main():
     ap.add_argument("--speakers", type=int, default=None, help="antall talere hvis kjent")
     args = ap.parse_args()
 
-    base = os.path.splitext(args.src)[0]
-    wav = base + ".wav"
+    base = os.path.splitext(os.path.basename(args.src))[0]
+    os.makedirs(WORK_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    wav = os.path.join(WORK_DIR, base + ".wav")
+    out_base = os.path.join(OUTPUT_DIR, base)
 
     print("1/4 lyd…")
     extract_audio(args.src, wav)
     print("2/4 diarization…")
-    segs = merge_segments(diarize(wav, base + ".diar.json", args.speakers))
+    segs = merge_segments(diarize(wav, os.path.join(WORK_DIR, base + ".diar.json"), args.speakers))
     print(f"  {len(segs)} segmenter, {len(set(s['speaker'] for s in segs))} talere")
 
     audio = sf.read(wav, dtype="float32")[0]
     print("3/4 språk per taler…")
-    langs = detect_languages(audio, segs, base + ".speaker_lang.json")
+    langs = detect_languages(audio, segs, os.path.join(WORK_DIR, base + ".speaker_lang.json"))
     print("4/4 transkriberer…")
     out = transcribe_segments(audio, segs, langs)
-    write_outputs(out, base)
-    print(f"\nFerdig: {base}.txt / .srt / .json")
+    write_outputs(out, out_base)
+    print(f"\nFerdig: {out_base}.txt / .srt / .json")
 
 
 def _selfcheck():
