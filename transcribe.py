@@ -12,7 +12,7 @@ Mellomresultater caches i work/ (slett dem for å kjøre på nytt):
 Output i output/:
     output/fil.txt  output/fil.srt  output/fil.json
 """
-import sys, os, json, subprocess, argparse
+import sys, os, json, subprocess, argparse, time
 import numpy as np
 import soundfile as sf
 
@@ -39,6 +39,7 @@ def diarize(wav, cache, num_speakers=None):
         return json.load(open(cache))
     import torch
     from pyannote.audio import Pipeline
+    from pyannote.audio.pipelines.utils.hook import ProgressHook
     token = os.environ.get("HF_TOKEN")
     if not token:
         sys.exit("HF_TOKEN ikke satt. export HF_TOKEN=hf_...")
@@ -46,7 +47,8 @@ def diarize(wav, cache, num_speakers=None):
                                     token=token)
     # ponytail: CPU. pyannote+MPS har hatt korrekthetsfeil; bytt til mps hvis for tregt.
     pipe.to(torch.device("cpu"))
-    dia = pipe(wav, num_speakers=num_speakers)
+    with ProgressHook() as hook:  # innebygd fremdrift per understeg (segm. → embeddings → clustering)
+        dia = pipe(wav, num_speakers=num_speakers, hook=hook)
     segs = dia.serialize()["diarization"]
     json.dump(segs, open(cache, "w"), indent=2)
     return segs
@@ -74,11 +76,12 @@ def detect_languages(audio, segs, cache):
         if dur > longest.get(spk, (None, 0))[1]:
             longest[spk] = (s, dur)
     mapping = {}
-    for spk, (s, _) in sorted(longest.items()):
+    items = sorted(longest.items())
+    for i, (spk, (s, _)) in enumerate(items, 1):
         clip = audio[int(s["start"] * SR):int(s["end"] * SR)]
         r = mlx_whisper.transcribe(clip, path_or_hf_repo=MODEL)
         mapping[spk] = r.get("language", "no")
-        print(f"  {spk}: {mapping[spk]}  (\"{r['text'].strip()[:60]}...\")")
+        print(f"  taler {i}/{len(items)} {spk}: {mapping[spk]}  (\"{r['text'].strip()[:60]}...\")")
     json.dump(mapping, open(cache, "w"), indent=2)
     print(f"\n  -> språk skrevet til {cache} — REDIGER der hvis no/sv er forvekslet, slett {os.path.basename(cache)} for ny autodeteksjon.")
     return mapping
@@ -86,8 +89,12 @@ def detect_languages(audio, segs, cache):
 
 def transcribe_segments(audio, segs, langs):
     import mlx_whisper
+    from tqdm import tqdm
     out = []
-    for i, s in enumerate(segs, 1):
+    # mininterval: tett oppdatering i terminal, sjelden i fil/bakgrunn (unngår tusenvis av loggrader)
+    bar = tqdm(segs, unit="seg", desc="  transkriberer",
+               mininterval=0.5 if sys.stderr.isatty() else 10)
+    for s in bar:
         if s["end"] - s["start"] < MIN_SEG:
             continue
         clip = audio[int(s["start"] * SR):int(s["end"] * SR)]
@@ -96,8 +103,13 @@ def transcribe_segments(audio, segs, langs):
         text = r["text"].strip()
         if text:
             out.append({**s, "language": lang, "text": text})
-        print(f"  [{i}/{len(segs)}] {s['speaker']} ({lang}) {text[:60]}")
+        bar.set_postfix_str(f"{s['speaker']} {lang}")
     return out
+
+
+def fmt_dur(sec):
+    m, s = divmod(int(sec), 60)
+    return f"{m}m{s:02d}s" if m else f"{s}s"
 
 
 def ts(sec, sep=","):
@@ -130,19 +142,33 @@ def main():
     wav = os.path.join(WORK_DIR, base + ".wav")
     out_base = os.path.join(OUTPUT_DIR, base)
 
+    timings = {}
+
     print("1/4 lyd…")
+    t = time.monotonic()
     extract_audio(args.src, wav)
+    timings["lyd"] = time.monotonic() - t
+
     print("2/4 diarization…")
+    t = time.monotonic()
     segs = merge_segments(diarize(wav, os.path.join(WORK_DIR, base + ".diar.json"), args.speakers))
+    timings["diarization"] = time.monotonic() - t
     print(f"  {len(segs)} segmenter, {len(set(s['speaker'] for s in segs))} talere")
 
     audio = sf.read(wav, dtype="float32")[0]
     print("3/4 språk per taler…")
+    t = time.monotonic()
     langs = detect_languages(audio, segs, os.path.join(WORK_DIR, base + ".speaker_lang.json"))
+    timings["språk"] = time.monotonic() - t
+
     print("4/4 transkriberer…")
+    t = time.monotonic()
     out = transcribe_segments(audio, segs, langs)
+    timings["transkribering"] = time.monotonic() - t
+
     write_outputs(out, out_base)
     print(f"\nFerdig: {out_base}.txt / .srt / .json")
+    print("  tid: " + " · ".join(f"{k} {fmt_dur(v)}" for k, v in timings.items()))
 
 
 def _selfcheck():
