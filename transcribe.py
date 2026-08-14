@@ -154,9 +154,20 @@ def read_partial(path):
     return done
 
 
+def resumable(path, segs, langs):
+    """Postene fra en avbrutt kjøring som fortsatt gjelder. To ting gjør en
+    post ubrukelig: segmentet finnes ikke lenger (diarization er kjørt på nytt
+    fordi cachen ble slettet), eller den ble transkribert med et annet språk
+    enn det som gjelder nå — å redigere speaker_lang.json mellom to kjøringer
+    er akkurat det kjøringen selv ber brukeren om å gjøre."""
+    keys = {seg_key(s) for s in segs}
+    return {k: r for k, r in read_partial(path).items()
+            if k in keys and r.get("language") == langs.get(r["speaker"], "no")}
+
+
 def transcribe_segments(audio, segs, langs, partial):
     import mlx_whisper
-    done = read_partial(partial)
+    done = resumable(partial, segs, langs)
     if done:
         if PROGRESS == "json":
             jprint(event="resume", completed=len(done), total=len(segs))
@@ -282,7 +293,7 @@ def main():
     except KeyboardInterrupt:
         # partial-fila er fasiten — det som står der er alt som rakk å bli
         # ferdig, uansett hvor i loopen avbruddet traff.
-        out = sorted((r for r in read_partial(partial).values() if r["text"]),
+        out = sorted((r for r in resumable(partial, segs, langs).values() if r["text"]),
                      key=lambda r: r["start"])
         write_outputs(out, out_base)
         if PROGRESS == "json":
@@ -331,6 +342,18 @@ def _selfcheck():
     assert len(done) == 1, done
     assert done[seg_key({"start": 1.0, "end": 2.0, "speaker": "A"})]["text"] == "hei"
     assert seg_key({"start": 1.0, "end": 2.0, "speaker": "B"}) not in done
+    os.remove(p)
+
+    # ... men en post gjenbrukes bare hvis segmentet og språket fortsatt er de
+    # samme. Ellers blir transkriptet en blanding av to kjøringer.
+    with open(p, "w") as f:
+        for r in [{"start": 1.0, "end": 2.0, "speaker": "A", "language": "no", "text": "her"},
+                  {"start": 3.0, "end": 4.0, "speaker": "A", "language": "sv", "text": "gammelt språk"},
+                  {"start": 9.0, "end": 9.5, "speaker": "B", "language": "no", "text": "borte"}]:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    segs = [{"start": 1.0, "end": 2.0, "speaker": "A"}, {"start": 3.0, "end": 4.0, "speaker": "A"}]
+    keep = resumable(p, segs, {"A": "no"})
+    assert list(keep) == [seg_key(segs[0])], keep
     os.remove(p)
 
     # pyannote teller med numpy-skalarer, og json.dumps kaster på dem uten
