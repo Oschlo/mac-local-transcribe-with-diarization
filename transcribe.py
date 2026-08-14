@@ -56,8 +56,13 @@ def extract_audio(src, wav):
     tmp = wav + ".part"
     # -f wav er ikke valgfritt her: ffmpeg velger muxer fra filendelsen, og
     # «.part» er ingen den kjenner («Unable to choose an output format»).
-    cmd = ["ffmpeg", "-y", "-i", src, "-ar", str(SR), "-ac", "1",
-           "-c:a", "pcm_s16le", "-f", "wav", tmp]
+    # -protocol_whitelist file: ASVS 5.3.2 — src er en filsti, men ffmpeg tar
+    # også http:, rtmp: og concat: på -i. Uten dette blir «filnavnet» en URL
+    # skriptet henter, og en frontend som sender videre det brukeren skrev
+    # (schous) får en SSRF på kjøpet. Målt: uten flagget kobler ffmpeg faktisk
+    # ut, med det avvises URL-en før nettverket røres.
+    cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", src,
+           "-ar", str(SR), "-ac", "1", "-c:a", "pcm_s16le", "-f", "wav", tmp]
     ok = False
     try:
         # stderr fanges, ikke kastes: den er den eneste diagnostikken ffmpeg gir.
@@ -331,6 +336,14 @@ def main():
 
 
 def _selfcheck():
+    # Først, ikke sist: to av testene under kjører faktisk ffmpeg og sjekker hva
+    # den svarte. Uten binæret blir «brew install ffmpeg» til en AssertionError,
+    # og den som mangler ffmpeg er nettopp den som ikke kan lese seg til det.
+    import shutil
+    if not shutil.which("ffmpeg"):
+        sys.exit("ffmpeg ikke funnet på PATH. brew install ffmpeg\n"
+                 f"  PATH={os.environ.get('PATH', '')}")
+
     assert ts(3661.5) == "01:01:01,500", ts(3661.5)
     assert merge_segments([
         {"start": 0, "end": 1, "speaker": "A"},
@@ -345,6 +358,16 @@ def _selfcheck():
         assert "ffmpeg" in str(e), e
     else:
         assert False, "extract_audio skulle avsluttet på manglende input"
+
+    # en URL som «input» skal avvises av ffmpeg, ikke hentes. Porten er stengt,
+    # så en kjøring uten protocol_whitelist ville feilet på Connection refused —
+    # her er poenget at den aldri kommer så langt.
+    try:
+        extract_audio("http://127.0.0.1:9/x.mp3", "/tmp/_sc_url_ffb4e1.wav")
+    except SystemExit as e:
+        assert "Invalid argument" in str(e), e
+    else:
+        assert False, "extract_audio skulle avvist en http-URL"
 
     # gjenopptagelse: nøkkelen treffer eget segment, bommer på naboen, og en
     # halvskrevet siste linje (drept midt i en write) skal ikke velte lesningen
@@ -384,13 +407,9 @@ def _selfcheck():
         assert False, "_on_signal skulle ha kastet KeyboardInterrupt"
     _signum = None
 
-    # Alt over er ren logikk. Under er det som faktisk står i veien for en ny
-    # bruker: torch, pyannote og mlx_whisper importeres inne i funksjoner, så
-    # et halvt installert venv passerer hele resten av denne testen.
-    import shutil
-    if not shutil.which("ffmpeg"):
-        sys.exit("ffmpeg ikke funnet på PATH. brew install ffmpeg\n"
-                 f"  PATH={os.environ.get('PATH', '')}")
+    # Det siste som står i veien for en ny bruker: torch, pyannote og
+    # mlx_whisper importeres inne i funksjoner, så et halvt installert venv
+    # passerer hele resten av denne testen.
     for mod in ("torch", "pyannote.audio", "mlx_whisper"):
         try:
             __import__(mod)
