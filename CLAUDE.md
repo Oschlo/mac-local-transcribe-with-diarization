@@ -34,6 +34,11 @@ even with `HF_HUB_OFFLINE=1` (the script checks for it).
   frozen in background logs. tqdm writes to stderr (`\r`, unbuffered) and is the
   reliable live signal. This is why a backgrounded run can look dead but isn't —
   check the process is using CPU (`ps -o %cpu`).
+- **A signal handler cannot interrupt C code.** SIGINT/SIGTERM raise
+  `KeyboardInterrupt`, but Python only runs the handler once the interpreter is
+  back from `mlx_whisper.transcribe`, so a stop lands at the *end* of the
+  segment in flight, not immediately. Don't add a timeout expecting instant
+  death; a long segment is seconds.
 
 ## Caches & re-running
 
@@ -41,6 +46,35 @@ Everything in `work/` is a cache. `*.diar.json` is the expensive one (~CPU
 minutes); it's kept so re-runs skip diarization. To fix a mis-detected
 language, edit `work/<base>.speaker_lang.json` and re-run — only transcription
 re-runs, fast. Delete a cache file to force that step again.
+
+`*.partial.jsonl` is the exception: it is written *during* step 4, one line per
+finished segment, and deleted when the run completes. It only exists while
+there is something to resume, so its presence means the last run was killed.
+Records are keyed on `(start, end, speaker)` — a re-diarization that moves the
+boundaries therefore misses every stale record instead of matching the wrong
+one, which is why deleting `.diar.json` does not require deleting this too.
+
+Measured on an Apple M5 (macOS 26.6.1), 10m54s of two-speaker Norwegian audio,
+weights already downloaded:
+
+```
+tid: lyd 0s · diarization 4m37s · språk 5s · transkribering 1m17s
+```
+
+6m02s total, **76 % of it diarization**. Don't reason about the ratio from
+transcription speed — step 2 is CPU-bound by choice, step 4 is not.
+
+## Progress output has two modes
+
+Default is the human-readable text that has always been there. `--progress
+json` emits one JSON object per line on stdout and *nothing else* — that mode
+exists so [Oschlo/schous](https://github.com/Oschlo/schous) does not have to
+regex prose off two streams. If you add a `print()` to the pipeline, guard it
+on `PROGRESS != "json"` or you break the frontend's parser silently.
+
+pyannote's own `ProgressHook` is `rich`-based and writes to **stdout**, so it
+cannot coexist with JSON mode; the hook is a plain callable and JSON mode
+passes its own.
 
 ## Known limitation
 
