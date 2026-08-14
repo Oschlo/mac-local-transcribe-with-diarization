@@ -8,6 +8,8 @@ Mellomresultater caches i work/ (slett dem for å kjøre på nytt):
     work/fil.wav                 16 kHz mono lyd
     work/fil.diar.json           diarization (tregt steget — caches alltid)
     work/fil.speaker_lang.json   {taler: språk} — REDIGERBAR, leses ved ny kjøring
+    work/fil.partial.jsonl       ferdige segmenter fra en avbrutt kjøring;
+                                 slettes når kjøringen fullfører
 
 Output i output/:
     output/fil.txt  output/fil.srt  output/fil.json
@@ -94,9 +96,35 @@ def detect_languages(audio, segs, cache):
     return mapping
 
 
-def transcribe_segments(audio, segs, langs):
+def seg_key(s):
+    """Identitet for et segment på tvers av kjøringer. Ikke bare start: to
+    talere kan i prinsippet begynne på samme hundredel."""
+    return (round(s["start"], 3), round(s["end"], 3), s["speaker"])
+
+
+def read_partial(path):
+    """Ferdige segmenter fra en avbrutt kjøring. Linjer som ikke er hel JSON
+    ignoreres — den siste kan være halvskrevet hvis prosessen ble drept midt i
+    en write()."""
+    done = {}
+    if not os.path.exists(path):
+        return done
+    with open(path) as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            done[seg_key(rec)] = rec
+    return done
+
+
+def transcribe_segments(audio, segs, langs, partial):
     import mlx_whisper
     from tqdm import tqdm
+    done = read_partial(partial)
+    if done:
+        print(f"  gjenopptar: {len(done)} segmenter alt transkribert")
     out = []
     # mininterval: tett oppdatering i terminal, sjelden i fil/bakgrunn (unngår tusenvis av loggrader)
     bar = tqdm(segs, unit="seg", desc="  transkriberer",
@@ -104,12 +132,24 @@ def transcribe_segments(audio, segs, langs):
     for s in bar:
         if s["end"] - s["start"] < MIN_SEG:
             continue
+        prev = done.get(seg_key(s))
+        if prev is not None:
+            if prev["text"]:
+                out.append(prev)
+            continue
         clip = audio[int(s["start"] * SR):int(s["end"] * SR)]
         lang = langs.get(s["speaker"], "no")
         r = mlx_whisper.transcribe(clip, path_or_hf_repo=MODEL, language=lang)
         text = r["text"].strip()
+        rec = {**s, "language": lang, "text": text}
         if text:
-            out.append({**s, "language": lang, "text": text})
+            out.append(rec)
+        # også de tomme skrives: ellers transkriberes stillheten på nytt ved
+        # hver gjenopptagelse. append + flush per segment — hele poenget er at
+        # en drept prosess etterlater arbeidet på disk.
+        with open(partial, "a") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.flush()
         bar.set_postfix_str(f"{s['speaker']} {lang}")
     return out
 
@@ -170,10 +210,13 @@ def main():
 
     print("4/4 transkriberer…")
     t = time.monotonic()
-    out = transcribe_segments(audio, segs, langs)
+    partial = os.path.join(WORK_DIR, base + ".partial.jsonl")
+    out = transcribe_segments(audio, segs, langs, partial)
     timings["transkribering"] = time.monotonic() - t
 
     write_outputs(out, out_base)
+    if os.path.exists(partial):
+        os.remove(partial)   # kjøringen fullførte; ingenting å gjenoppta
     print(f"\nFerdig: {out_base}.txt / .srt / .json")
     print("  tid: " + " · ".join(f"{k} {fmt_dur(v)}" for k, v in timings.items()))
 
@@ -193,6 +236,18 @@ def _selfcheck():
         assert "ffmpeg" in str(e), e
     else:
         assert False, "extract_audio skulle avsluttet på manglende input"
+
+    # gjenopptagelse: nøkkelen treffer eget segment, bommer på naboen, og en
+    # halvskrevet siste linje (drept midt i en write) skal ikke velte lesningen
+    p = "/tmp/_sc_partial_ffb4e1.jsonl"
+    with open(p, "w") as f:
+        f.write(json.dumps({"start": 1.0, "end": 2.0, "speaker": "A", "text": "hei"}) + "\n")
+        f.write('{"start": 3.0, "end":')
+    done = read_partial(p)
+    assert len(done) == 1, done
+    assert done[seg_key({"start": 1.0, "end": 2.0, "speaker": "A"})]["text"] == "hei"
+    assert seg_key({"start": 1.0, "end": 2.0, "speaker": "B"}) not in done
+    os.remove(p)
 
     print("selfcheck ok")
 
