@@ -338,12 +338,62 @@ def _selfcheck():
         assert False, "_on_signal skulle ha kastet KeyboardInterrupt"
     _signum = None
 
+    # Alt over er ren logikk. Under er det som faktisk står i veien for en ny
+    # bruker: torch, pyannote og mlx_whisper importeres inne i funksjoner, så
+    # et halvt installert venv passerer hele resten av denne testen.
+    import shutil
+    if not shutil.which("ffmpeg"):
+        sys.exit("ffmpeg ikke funnet på PATH. brew install ffmpeg\n"
+                 f"  PATH={os.environ.get('PATH', '')}")
+    for mod in ("torch", "pyannote.audio", "mlx_whisper"):
+        try:
+            __import__(mod)
+        except ImportError as e:
+            sys.exit(f"{mod} kan ikke importeres: {e}\n"
+                     "  uv pip install --python .venv/bin/python -r requirements.txt")
+
     print("selfcheck ok")
+
+
+def _check_access():
+    """Det --selfcheck ikke kan svare på uten nett: er tokenet i live, og er
+    modell-lisensene godtatt med kontoen det tilhører. De to feilene er
+    forskjellige og skal ikke se like ut."""
+    tok = os.environ.get("HF_TOKEN")
+    if not tok:
+        sys.exit("HF_TOKEN ikke satt.")
+    from huggingface_hub import HfApi
+    from huggingface_hub.utils import (GatedRepoError, RepositoryNotFoundError,
+                                       HfHubHTTPError)
+    api = HfApi()
+    try:
+        who = api.whoami(token=tok)
+    except Exception as e:
+        sys.exit(f"Hugging Face avviste tokenet: {e}\n"
+                 "  lag et nytt read-token på https://huggingface.co/settings/tokens")
+    for repo in ("pyannote/speaker-diarization-community-1",
+                 "pyannote/segmentation-3.0"):
+        try:
+            api.model_info(repo, token=tok)
+        except GatedRepoError:
+            sys.exit(f"Lisensen for {repo} er ikke godtatt av «{who.get('name', '?')}»,"
+                     " som er kontoen dette tokenet tilhører.\n"
+                     f"  godta på https://huggingface.co/{repo}")
+        except RepositoryNotFoundError:
+            sys.exit(f"{repo} er ikke synlig for dette tokenet.\n"
+                     "  feil konto, eller tokenet mangler read-tilgang.")
+        except HfHubHTTPError as e:
+            sys.exit(f"Hugging Face svarte med feil for {repo}: {e}")
+        except Exception as e:
+            sys.exit(f"Nådde ikke Hugging Face: {e}")
+    print(f"access ok  ({who.get('name', '?')})")
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1] == "--selfcheck":
         _selfcheck()
+    elif len(sys.argv) == 2 and sys.argv[1] == "--check-access":
+        _check_access()
     else:
         try:
             main()
