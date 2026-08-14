@@ -33,12 +33,23 @@ without re-diarizing.
 
 - macOS on Apple Silicon
 - `ffmpeg` (`brew install ffmpeg`)
-- Python 3.12+ (this repo uses [`uv`](https://github.com/astral-sh/uv))
-- A Hugging Face account + token, and **accepted licenses** for two gated models:
-  - https://huggingface.co/pyannote/speaker-diarization-community-1
-  - https://huggingface.co/pyannote/segmentation-3.0
+- Python 3.12+, driven by [`uv`](https://github.com/astral-sh/uv)
+  (`brew install uv`)
+- **~4.2 GB of disk** — see the table below
+- A Hugging Face account and a read token
 
 ## Setup
+
+**Accept the two model licenses first, before the first run.** Both are gated,
+and both must be accepted with the *same* account the token belongs to — an
+easy thing to get wrong if you have two:
+
+- https://huggingface.co/pyannote/speaker-diarization-community-1
+- https://huggingface.co/pyannote/segmentation-3.0
+
+Skip this and step 2 fails with a Hugging Face download error that does not
+mention licenses at all. The token itself is valid, so it looks like something
+else is wrong. It is the most likely first failure anyone hits.
 
 ```zsh
 uv venv --python 3.12 .venv
@@ -46,6 +57,43 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 export HF_TOKEN="hf_..."   # your read token
 ```
+
+### Disk
+
+Measured 2026-08-12:
+
+| What | Size |
+|---|---|
+| `mlx-community/whisper-large-v3-mlx` | **2.9 GB** |
+| `pyannote/speaker-diarization-community-1` | 31 MB |
+| `.venv` (torch and torchaudio are almost all of it) | **1.3 GB** |
+| total | **~4.2 GB** |
+
+The weights are **not** downloaded by `uv pip install` — they arrive during the
+**first run**, in the middle of steps 2 and 4. So the first job looks like it
+has hung while it is in fact pulling 2.9 GB, and if you piped stdout to a file
+there is nothing in the log saying so.
+
+### How long it takes
+
+Measured on an **Apple M5, macOS 26.6.1**, weights already downloaded, a
+10m54s two-speaker Norwegian recording:
+
+```
+tid: lyd 0s · diarization 4m37s · språk 5s · transkribering 1m17s
+```
+
+**6m02s total for 10m54s of audio**, about 0.55× the length of the recording —
+and **diarization is 76 % of it**. That ratio is not obvious, so do not
+extrapolate from transcription speed: diarization runs on CPU on purpose, which
+is why it dominates. `lyd 0s` is an already-16 kHz WAV input; an `.mp4` adds a
+few seconds of ffmpeg.
+
+The script prints that timing line at the end of every run, so you can measure
+your own machine rather than trust this one.
+
+Re-running the same file is much faster: steps 1–3 are cached in `work/`, so
+only transcription runs again (1m17s of the 6m02s above).
 
 ## Folder layout
 
@@ -69,12 +117,32 @@ Put videos in `input/`, then:
 
 # all of them:
 for f in input/*.mp4; do .venv/bin/python transcribe.py "$f"; done
+
+# somewhere other than ./work and ./output:
+.venv/bin/python transcribe.py "input/recording.mp4" \
+    --work-dir /tmp/w --output-dir ~/Transcripts
+
+# one JSON line per event on stdout, for a frontend:
+.venv/bin/python transcribe.py "input/recording.mp4" --progress json
 ```
 
 Each step reports progress: diarization shows per-substep bars, language
 detection shows `taler i/N`, the transcription loop is a percent/ETA bar, and a
 per-step timing summary prints at the end. In a real terminal the bars update
 live; piped to a file they back off to occasional lines.
+
+`--progress json` replaces all of that with one JSON object per line on stdout
+and nothing else — `step`, `progress`, `diarized`, `language`, `resume`,
+`done`, `interrupted` — so a GUI does not have to scrape prose off two streams.
+It also drops the 10-second backoff, since there is no bar to repaint.
+
+### Interrupting a run
+
+Ctrl-C, or a `SIGTERM`, stops after the segment in flight and still writes
+`.txt`/`.srt`/`.json` from everything transcribed so far (exit code 130 or
+143). Nothing is lost: each finished segment is appended to
+`work/<name>.partial.jsonl` as it completes, and re-running the same file picks
+up from there. The partial file is deleted once a run completes.
 
 After the first run, set `HF_HUB_OFFLINE=1` to guarantee nothing touches the
 network.
@@ -85,6 +153,7 @@ network.
 |------|------|
 | `work/recording.diar.json` | diarization result (cached; delete to re-diarize) |
 | `work/recording.speaker_lang.json` | `{speaker: language}` — **edit this** if a language was mis-detected, then re-run |
+| `work/recording.partial.jsonl` | segments finished by an interrupted run; only exists while there is something to resume |
 | `output/recording.txt` | readable transcript, one line per segment with speaker + language + timestamp |
 | `output/recording.srt` | subtitles |
 | `output/recording.json` | full structured output (start, end, speaker, language, text) |
