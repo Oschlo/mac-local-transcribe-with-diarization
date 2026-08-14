@@ -56,8 +56,13 @@ def extract_audio(src, wav):
     tmp = wav + ".part"
     # -f wav er ikke valgfritt her: ffmpeg velger muxer fra filendelsen, og
     # «.part» er ingen den kjenner («Unable to choose an output format»).
-    cmd = ["ffmpeg", "-y", "-i", src, "-ar", str(SR), "-ac", "1",
-           "-c:a", "pcm_s16le", "-f", "wav", tmp]
+    # -protocol_whitelist file: ASVS 5.3.2 — src er en filsti, men ffmpeg tar
+    # også http:, rtmp: og concat: på -i. Uten dette blir «filnavnet» en URL
+    # skriptet henter, og en frontend som sender videre det brukeren skrev
+    # (schous) får en SSRF på kjøpet. Målt: uten flagget kobler ffmpeg faktisk
+    # ut, med det avvises URL-en før nettverket røres.
+    cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", src,
+           "-ar", str(SR), "-ac", "1", "-c:a", "pcm_s16le", "-f", "wav", tmp]
     ok = False
     try:
         # stderr fanges, ikke kastes: den er den eneste diagnostikken ffmpeg gir.
@@ -345,6 +350,16 @@ def _selfcheck():
         assert "ffmpeg" in str(e), e
     else:
         assert False, "extract_audio skulle avsluttet på manglende input"
+
+    # en URL som «input» skal avvises av ffmpeg, ikke hentes. Porten er stengt,
+    # så en kjøring uten protocol_whitelist ville feilet på Connection refused —
+    # her er poenget at den aldri kommer så langt.
+    try:
+        extract_audio("http://127.0.0.1:9/x.mp3", "/tmp/_sc_url_ffb4e1.wav")
+    except SystemExit as e:
+        assert "Invalid argument" in str(e), e
+    else:
+        assert False, "extract_audio skulle avvist en http-URL"
 
     # gjenopptagelse: nøkkelen treffer eget segment, bommer på naboen, og en
     # halvskrevet siste linje (drept midt i en write) skal ikke velte lesningen
