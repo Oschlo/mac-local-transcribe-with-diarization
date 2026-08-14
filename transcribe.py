@@ -14,7 +14,7 @@ Mellomresultater caches i work/ (slett dem for å kjøre på nytt):
 Output i output/:
     output/fil.txt  output/fil.srt  output/fil.json
 """
-import sys, os, json, subprocess, argparse, time
+import sys, os, json, subprocess, argparse, time, signal
 import numpy as np
 import soundfile as sf
 
@@ -177,7 +177,22 @@ def write_outputs(segs, base):
                     f"{s['speaker']} ({s['language']}): {s['text']}\n\n")
 
 
+_signum = None
+
+
+def _on_signal(signum, frame):
+    """SIGTERM oppfører seg som Ctrl-C, og vi husker hvilket signal det var for
+    exit-koden. Python utsetter handleren til tolkeren er tilbake fra C-kode, så
+    avbruddet lander tidligst når inneværende segment er ferdig."""
+    global _signum
+    _signum = signum
+    raise KeyboardInterrupt
+
+
 def main():
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
     ap.add_argument("--speakers", type=int, default=None, help="antall talere hvis kjent")
@@ -211,7 +226,17 @@ def main():
     print("4/4 transkriberer…")
     t = time.monotonic()
     partial = os.path.join(WORK_DIR, base + ".partial.jsonl")
-    out = transcribe_segments(audio, segs, langs, partial)
+    try:
+        out = transcribe_segments(audio, segs, langs, partial)
+    except KeyboardInterrupt:
+        # partial-fila er fasiten — det som står der er alt som rakk å bli
+        # ferdig, uansett hvor i loopen avbruddet traff.
+        out = sorted((r for r in read_partial(partial).values() if r["text"]),
+                     key=lambda r: r["start"])
+        write_outputs(out, out_base)
+        print(f"\nAvbrutt — skrev {len(out)} segmenter til {out_base}.txt/.srt/.json.")
+        print("  kjør på nytt med samme fil for å fortsette der den slapp.")
+        raise
     timings["transkribering"] = time.monotonic() - t
 
     write_outputs(out, out_base)
@@ -249,6 +274,16 @@ def _selfcheck():
     assert seg_key({"start": 1.0, "end": 2.0, "speaker": "B"}) not in done
     os.remove(p)
 
+    # SIGTERM må oppføre seg som Ctrl-C, ellers dør steg 4 uten å skrive noe
+    global _signum
+    try:
+        _on_signal(signal.SIGTERM, None)
+    except KeyboardInterrupt:
+        assert _signum == signal.SIGTERM
+    else:
+        assert False, "_on_signal skulle ha kastet KeyboardInterrupt"
+    _signum = None
+
     print("selfcheck ok")
 
 
@@ -256,4 +291,9 @@ if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1] == "--selfcheck":
         _selfcheck()
     else:
-        main()
+        try:
+            main()
+        except KeyboardInterrupt:
+            # 128+signal, som et skall forventer. Ctrl-C før handleren er
+            # installert gir _signum None, og det er SIGINT.
+            sys.exit(143 if _signum == signal.SIGTERM else 130)
