@@ -3,6 +3,7 @@
 
 Bruk:
     python transcribe.py "input/fil.mp4" [--speakers N]
+                         [--work-dir DIR] [--output-dir DIR]
 
 Mellomresultater caches i work/ (slett dem for å kjøre på nytt):
     work/fil.wav                 16 kHz mono lyd
@@ -196,13 +197,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
     ap.add_argument("--speakers", type=int, default=None, help="antall talere hvis kjent")
+    ap.add_argument("--work-dir", default=WORK_DIR, help="mellomresultater (default: %(default)s)")
+    ap.add_argument("--output-dir", default=OUTPUT_DIR, help="leveranser (default: %(default)s)")
     args = ap.parse_args()
 
     base = os.path.splitext(os.path.basename(args.src))[0]
-    os.makedirs(WORK_DIR, exist_ok=True)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    wav = os.path.join(WORK_DIR, base + ".wav")
-    out_base = os.path.join(OUTPUT_DIR, base)
+    work_dir, output_dir = args.work_dir, args.output_dir
+    os.makedirs(work_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    wav = os.path.join(work_dir, base + ".wav")
+    out_base = os.path.join(output_dir, base)
 
     timings = {}
 
@@ -213,19 +217,19 @@ def main():
 
     print("2/4 diarization…")
     t = time.monotonic()
-    segs = merge_segments(diarize(wav, os.path.join(WORK_DIR, base + ".diar.json"), args.speakers))
+    segs = merge_segments(diarize(wav, os.path.join(work_dir, base + ".diar.json"), args.speakers))
     timings["diarization"] = time.monotonic() - t
     print(f"  {len(segs)} segmenter, {len(set(s['speaker'] for s in segs))} talere")
 
     audio = sf.read(wav, dtype="float32")[0]
     print("3/4 språk per taler…")
     t = time.monotonic()
-    langs = detect_languages(audio, segs, os.path.join(WORK_DIR, base + ".speaker_lang.json"))
+    langs = detect_languages(audio, segs, os.path.join(work_dir, base + ".speaker_lang.json"))
     timings["språk"] = time.monotonic() - t
 
     print("4/4 transkriberer…")
     t = time.monotonic()
-    partial = os.path.join(WORK_DIR, base + ".partial.jsonl")
+    partial = os.path.join(work_dir, base + ".partial.jsonl")
     try:
         out = transcribe_segments(audio, segs, langs, partial)
     except KeyboardInterrupt:
