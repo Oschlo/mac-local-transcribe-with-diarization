@@ -7,3 +7,6 @@ __pycache__/
 input/
 work/
 output/
+
+# macOS
+.DS_Store

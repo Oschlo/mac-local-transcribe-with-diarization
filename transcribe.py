@@ -27,11 +27,18 @@ MIN_SEG = 0.4      # hopp over segmenter kortere enn dette (s)
 def extract_audio(src, wav):
     if os.path.exists(wav):
         return
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", src, "-ar", str(SR), "-ac", "1",
-         "-c:a", "pcm_s16le", wav],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    cmd = ["ffmpeg", "-y", "-i", src, "-ar", str(SR), "-ac", "1",
+           "-c:a", "pcm_s16le", wav]
+    try:
+        # stderr fanges, ikke kastes: den er den eneste diagnostikken ffmpeg gir.
+        r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.PIPE, text=True)
+    except FileNotFoundError:
+        sys.exit("ffmpeg ikke funnet på PATH. brew install ffmpeg\n"
+                 f"  PATH={os.environ.get('PATH', '')}")
+    if r.returncode:
+        sys.exit(f"ffmpeg feilet på {src} (kode {r.returncode}):\n"
+                 + (r.stderr or "").strip()[-800:])
 
 
 def diarize(wav, cache, num_speakers=None):
@@ -178,6 +185,15 @@ def _selfcheck():
         {"start": 1.2, "end": 2, "speaker": "A"},
         {"start": 5, "end": 6, "speaker": "A"},
     ]) == [{"start": 0, "end": 2, "speaker": "A"}, {"start": 5, "end": 6, "speaker": "A"}]
+
+    # en ffmpeg-feil skal bli en lesbar melding, ikke en tom CalledProcessError
+    try:
+        extract_audio("finnes-ikke-ffb4e1.mp4", "/tmp/finnes-ikke-ffb4e1.wav")
+    except SystemExit as e:
+        assert "ffmpeg" in str(e), e
+    else:
+        assert False, "extract_audio skulle avsluttet på manglende input"
+
     print("selfcheck ok")
 
 
