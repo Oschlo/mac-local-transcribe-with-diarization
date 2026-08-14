@@ -116,3 +116,33 @@ The diarization cache is kept, so re-running only re-transcribes — fast.
 
 See [transkripsjon-pipeline-plan.md](transkripsjon-pipeline-plan.md) for the
 original design notes.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Third-party
+
+Nothing in the dependency tree constrains the license above, but two points are
+easy to get wrong:
+
+**`ffmpeg` does not affect this license.** It is called as a subprocess
+(`transcribe.py`), never linked, and you install it yourself with Homebrew. A
+GPL-built ffmpeg binary on your machine stays your ffmpeg binary.
+
+**No model weights are distributed from here.** Both pyannote models are gated
+on Hugging Face: every user accepts the terms with their own account and
+downloads with their own token. This repo contains no weights and cannot route
+around that gate. The CC-BY-4.0 attribution below therefore applies to your use
+of `speaker-diarization-community-1`, not to anything shipped in this
+repository.
+
+| Component | License |
+|---|---|
+| `pyannote.audio` (code) | MIT |
+| `pyannote/speaker-diarization-community-1` (weights) | **CC-BY-4.0** — requires attribution |
+| `pyannote/segmentation-3.0` (weights) | MIT |
+| `mlx-whisper` | MIT |
+| `mlx-community/whisper-large-v3-mlx` (weights) | MIT |
+| `torch`, `torchaudio`, `numpy`, `soundfile` | BSD-3-Clause |
+| `ffmpeg` | GPL/LGPL depending on build — subprocess, not linked |
