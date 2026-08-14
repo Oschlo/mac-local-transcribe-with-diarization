@@ -32,7 +32,11 @@ PROGRESS = "text"
 
 
 def jprint(**kw):
-    print(json.dumps(kw, ensure_ascii=False), flush=True)
+    # default=str: en fremdriftslinje skal aldri kunne drepe en kjøring som har
+    # holdt på i minutter. pyannote sender numpy-skalarer (se hooken i diarize),
+    # og json.dumps kaster på dem. Kilden coerces der den er kjent; dette er
+    # nettet under, ikke erstatningen for det.
+    print(json.dumps(kw, ensure_ascii=False, default=str), flush=True)
 
 
 def step(n, name):
@@ -75,9 +79,10 @@ def diarize(wav, cache, num_speakers=None):
         # pyannotes egen ProgressHook er rich-basert og skriver til stdout —
         # den ville blandet seg med JSON-linjene. Hooken er bare en callable.
         def hook(step_name, artifact, file=None, total=None, completed=None):
+            # int(): pyannote teller med numpy-skalarer, ikke Python-int.
             if total:
                 jprint(event="progress", step=2, sub=step_name,
-                       completed=completed or 0, total=total)
+                       completed=int(completed or 0), total=int(total))
         dia = pipe(wav, num_speakers=num_speakers, hook=hook)
     else:
         from pyannote.audio.pipelines.utils.hook import ProgressHook
@@ -327,6 +332,10 @@ def _selfcheck():
     assert done[seg_key({"start": 1.0, "end": 2.0, "speaker": "A"})]["text"] == "hei"
     assert seg_key({"start": 1.0, "end": 2.0, "speaker": "B"}) not in done
     os.remove(p)
+
+    # pyannote teller med numpy-skalarer, og json.dumps kaster på dem uten
+    # nettet i jprint. Det drepte en hel diarization-kjøring én gang.
+    jprint(numpy_skalar=np.int64(64))
 
     # SIGTERM må oppføre seg som Ctrl-C, ellers dør steg 4 uten å skrive noe
     global _signum
