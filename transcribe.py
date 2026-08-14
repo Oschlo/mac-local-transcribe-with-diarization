@@ -336,6 +336,14 @@ def main():
 
 
 def _selfcheck():
+    # Først, ikke sist: to av testene under kjører faktisk ffmpeg og sjekker hva
+    # den svarte. Uten binæret blir «brew install ffmpeg» til en AssertionError,
+    # og den som mangler ffmpeg er nettopp den som ikke kan lese seg til det.
+    import shutil
+    if not shutil.which("ffmpeg"):
+        sys.exit("ffmpeg ikke funnet på PATH. brew install ffmpeg\n"
+                 f"  PATH={os.environ.get('PATH', '')}")
+
     assert ts(3661.5) == "01:01:01,500", ts(3661.5)
     assert merge_segments([
         {"start": 0, "end": 1, "speaker": "A"},
@@ -399,13 +407,9 @@ def _selfcheck():
         assert False, "_on_signal skulle ha kastet KeyboardInterrupt"
     _signum = None
 
-    # Alt over er ren logikk. Under er det som faktisk står i veien for en ny
-    # bruker: torch, pyannote og mlx_whisper importeres inne i funksjoner, så
-    # et halvt installert venv passerer hele resten av denne testen.
-    import shutil
-    if not shutil.which("ffmpeg"):
-        sys.exit("ffmpeg ikke funnet på PATH. brew install ffmpeg\n"
-                 f"  PATH={os.environ.get('PATH', '')}")
+    # Det siste som står i veien for en ny bruker: torch, pyannote og
+    # mlx_whisper importeres inne i funksjoner, så et halvt installert venv
+    # passerer hele resten av denne testen.
     for mod in ("torch", "pyannote.audio", "mlx_whisper"):
         try:
             __import__(mod)
