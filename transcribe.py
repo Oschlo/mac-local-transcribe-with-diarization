@@ -49,18 +49,32 @@ def step(n, name):
 def extract_audio(src, wav):
     if os.path.exists(wav):
         return
+    # Skriv til en midlertidig fil og gi den navnet først når ffmpeg er ferdig.
+    # Cachesjekken over er bare «finnes filen», så en wav som ble avbrutt midt i
+    # skrivingen — SIGTERM i steg 1 dreper ffmpeg, men filen er allerede laget —
+    # ville ellers blitt lest som ferdig lyd av neste kjøring.
+    tmp = wav + ".part"
+    # -f wav er ikke valgfritt her: ffmpeg velger muxer fra filendelsen, og
+    # «.part» er ingen den kjenner («Unable to choose an output format»).
     cmd = ["ffmpeg", "-y", "-i", src, "-ar", str(SR), "-ac", "1",
-           "-c:a", "pcm_s16le", wav]
+           "-c:a", "pcm_s16le", "-f", "wav", tmp]
+    ok = False
     try:
         # stderr fanges, ikke kastes: den er den eneste diagnostikken ffmpeg gir.
         r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
                            stderr=subprocess.PIPE, text=True)
+        ok = r.returncode == 0
     except FileNotFoundError:
         sys.exit("ffmpeg ikke funnet på PATH. brew install ffmpeg\n"
                  f"  PATH={os.environ.get('PATH', '')}")
+    finally:
+        # Også ved KeyboardInterrupt fra signalhandleren, som ikke er en Exception.
+        if not ok and os.path.exists(tmp):
+            os.remove(tmp)
     if r.returncode:
         sys.exit(f"ffmpeg feilet på {src} (kode {r.returncode}):\n"
                  + (r.stderr or "").strip()[-800:])
+    os.replace(tmp, wav)
 
 
 def diarize(wav, cache, num_speakers=None):
@@ -394,19 +408,31 @@ def _check_access():
     tok = os.environ.get("HF_TOKEN")
     if not tok:
         sys.exit("HF_TOKEN ikke satt.")
-    from huggingface_hub import HfApi
+    from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_url
     from huggingface_hub.utils import (GatedRepoError, RepositoryNotFoundError,
                                        HfHubHTTPError)
     api = HfApi()
     try:
         who = api.whoami(token=tok)
+    except HfHubHTTPError as e:
+        # Et avvist token og et Hugging Face som er nede skal ikke gi samme råd.
+        # 401/403 er svaret på tokenet; alt annet er svaret på spørsmålet.
+        if getattr(e.response, "status_code", None) in (401, 403):
+            sys.exit(f"Hugging Face avviste tokenet: {e}\n"
+                     "  lag et nytt read-token på https://huggingface.co/settings/tokens")
+        sys.exit(f"Hugging Face svarte med feil: {e}\n"
+                 "  ikke noe galt med tokenet — prøv igjen senere.")
     except Exception as e:
-        sys.exit(f"Hugging Face avviste tokenet: {e}\n"
-                 "  lag et nytt read-token på https://huggingface.co/settings/tokens")
-    for repo in ("pyannote/speaker-diarization-community-1",
-                 "pyannote/segmentation-3.0"):
+        sys.exit(f"Nådde ikke Hugging Face: {e}\n"
+                 "  sjekk nettforbindelsen.")
+    # Metadata om selve repoet er offentlig og sier ingenting om lisensen: målt
+    # mot meta-llama/Llama-2-7b-hf uten godtatt lisens ga `model_info` OK mens
+    # den første filen ga 403. Det er filoppslaget porten står på, så det er det
+    # som spørres.
+    for repo, probe in (("pyannote/speaker-diarization-community-1", "config.yaml"),
+                        ("pyannote/segmentation-3.0", "config.yaml")):
         try:
-            api.model_info(repo, token=tok)
+            get_hf_file_metadata(hf_hub_url(repo, probe), token=tok)
         except GatedRepoError:
             sys.exit(f"Lisensen for {repo} er ikke godtatt av «{who.get('name', '?')}»,"
                      " som er kontoen dette tokenet tilhører.\n"
