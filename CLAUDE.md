@@ -7,11 +7,17 @@ non-obvious stuff that bit us once already.
 ## Run it
 
 ```zsh
-HF_TOKEN=hf_... .venv/bin/python transcribe.py "input/foo.mp4" [--speakers N]
+.venv/bin/hf auth login    # engangs, lagrer i ~/.cache/huggingface/token
+.venv/bin/python transcribe.py "input/foo.mp4" [--speakers N]
 ```
 
-Use the venv (`.venv/bin/python`), not system Python. `HF_TOKEN` must be set
-even with `HF_HUB_OFFLINE=1` (the script checks for it).
+Use the venv (`.venv/bin/python`), not system Python. A token must be reachable
+even with `HF_HUB_OFFLINE=1` (the script checks for it), but it does not have to
+come from the environment: `huggingface_hub.get_token()` reads `HF_TOKEN` first
+and falls back to `~/.cache/huggingface/token`. `HF_TOKEN=hf_... .venv/bin/...`
+therefore still works and still wins — it is just no longer the only way, which
+is what lets a GUI frontend launched from Finder, inheriting no shell, find a
+token at all.
 
 ## Hard-won gotchas
 
