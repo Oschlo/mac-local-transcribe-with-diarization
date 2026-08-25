@@ -55,8 +55,14 @@ else is wrong. It is the most likely first failure anyone hits.
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 
-export HF_TOKEN="hf_..."   # your read token
+.venv/bin/hf auth login    # paste your read token
 ```
+
+`hf auth login` stores the token in `~/.cache/huggingface/token`, which is where
+`huggingface_hub.get_token()` looks. `export HF_TOKEN=hf_...` still works and
+still wins over the file — but only for processes that inherit your shell. A GUI
+frontend launched from Finder inherits nothing, so the file is the one that
+works everywhere.
 
 ### Disk
 

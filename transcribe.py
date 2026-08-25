@@ -87,9 +87,14 @@ def diarize(wav, cache, num_speakers=None):
         return json.load(open(cache))
     import torch
     from pyannote.audio import Pipeline
-    token = os.environ.get("HF_TOKEN")
+    from huggingface_hub import get_token
+    # get_token(), ikke os.environ: den leser HF_TOKEN først og faller tilbake
+    # på ~/.cache/huggingface/token. Et skall har miljøvariabelen fra ~/.zshenv,
+    # men en app startet fra Finder arver ikke noe skall — den ser bare fila.
+    token = get_token()
     if not token:
-        sys.exit("HF_TOKEN ikke satt. export HF_TOKEN=hf_...")
+        sys.exit("Fant ikke noe Hugging Face-token.\n"
+                 "  `.venv/bin/hf auth login`, eller export HF_TOKEN=hf_...")
     pipe = Pipeline.from_pretrained("pyannote/speaker-diarization-community-1",
                                     token=token)
     # ponytail: CPU. pyannote+MPS har hatt korrekthetsfeil; bytt til mps hvis for tregt.
@@ -424,10 +429,12 @@ def _check_access():
     """Det --selfcheck ikke kan svare på uten nett: er tokenet i live, og er
     modell-lisensene godtatt med kontoen det tilhører. De to feilene er
     forskjellige og skal ikke se like ut."""
-    tok = os.environ.get("HF_TOKEN")
+    from huggingface_hub import (HfApi, get_hf_file_metadata, hf_hub_url,
+                                 get_token)
+    tok = get_token()
     if not tok:
-        sys.exit("HF_TOKEN ikke satt.")
-    from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_url
+        sys.exit("Fant ikke noe Hugging Face-token.\n"
+                 "  `.venv/bin/hf auth login`, eller export HF_TOKEN=hf_...")
     from huggingface_hub.utils import (GatedRepoError, RepositoryNotFoundError,
                                        HfHubHTTPError)
     api = HfApi()
