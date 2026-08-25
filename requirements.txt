@@ -4,3 +4,6 @@ torch
 torchaudio
 soundfile
 numpy
+# transitiv via pyannote (som bare krever >=0.28.1), men eksplisitt her fordi
+# README ber deg kjøre `hf auth login`: `hf`-kommandoen kom først i 0.34.
+huggingface_hub>=0.34
