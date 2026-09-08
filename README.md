@@ -90,16 +90,25 @@ tid: lyd 0s · diarization 4m37s · språk 5s · transkribering 1m17s
 ```
 
 **6m02s total for 10m54s of audio**, about 0.55× the length of the recording —
-and **diarization is 76 % of it**. That ratio is not obvious, so do not
-extrapolate from transcription speed: diarization runs on CPU on purpose, which
-is why it dominates. `lyd 0s` is an already-16 kHz WAV input; an `.mp4` adds a
-few seconds of ffmpeg.
+and **diarization is 76 % of it**. That line is the **retired CPU baseline**:
+diarization ran on CPU until 2026-09-08. It now runs on MPS when available,
+measured on the same machine, step 2 alone, same input and speaker count, only
+the device changed:
+
+```
+16 min, 2 speakers   cpu 413 s     mps  61 s   diar.json byte-identical
+61 min, 3 speakers   cpu ~26 min   mps 212 s   diar.json byte-identical
+```
+
+About 7× on step 2, so expect roughly 0.2× the length of the recording end to
+end. `lyd 0s` is an already-16 kHz WAV input; an `.mp4` adds a few seconds of
+ffmpeg.
 
 The script prints that timing line at the end of every run, so you can measure
 your own machine rather than trust this one.
 
 Re-running the same file is much faster: steps 1–3 are cached in `work/`, so
-only transcription runs again (1m17s of the 6m02s above).
+only transcription runs again (1m17s in the baseline above).
 
 ## Folder layout
 
