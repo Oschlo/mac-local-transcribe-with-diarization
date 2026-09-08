@@ -28,9 +28,20 @@ token at all.
   the HF account must accept its license (plus `pyannote/segmentation-3.0`).
 - **pyannote 4.x pipeline returns a `DiarizeOutput`**, not an `Annotation`. Use
   `dia.serialize()["diarization"]`, not `.itertracks()`.
-- **Diarization runs on CPU on purpose** (`pipe.to("cpu")`). MPS has had
-  correctness bugs with pyannote. Slow but right; flip to MPS only if you
-  measure and verify.
+- **Diarization runs on MPS, with CPU as fallback.** It was CPU-only until
+  2026-09-08 on the assumption that pyannote+MPS had correctness bugs. Measured
+  on pyannote 4.0.5 / torch 2.13.0 / Apple M5, step 2 alone, same wav and
+  `num_speakers`, only the device changed
+  ([#17](https://github.com/Oschlo/mac-local-transcribe-with-diarization/issues/17)):
+
+  ```
+  16 min, 2 talere   cpu 413 s   mps  61 s   diar.json byte-identisk
+  61 min, 3 talere   cpu ~26 min mps 212 s   diar.json byte-identisk
+  ```
+
+  Both models sat on `mps:0`, no fallback env var. Two recordings, one
+  machine — if a future pyannote/torch upgrade changes speaker counts or
+  boundaries, re-run that comparison before blaming anything else.
 - **Transcription is mlx-whisper, not whisperx.** whisperx falls back to slow
   CPU on Apple Silicon. mlx uses MLX and is fast on M-series.
 - **Language is locked per speaker, never autodetected during the real run.**
