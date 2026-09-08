@@ -97,8 +97,9 @@ def diarize(wav, cache, num_speakers=None):
                  "  `.venv/bin/hf auth login`, eller export HF_TOKEN=hf_...")
     pipe = Pipeline.from_pretrained("pyannote/speaker-diarization-community-1",
                                     token=token)
-    # ponytail: CPU. pyannote+MPS har hatt korrekthetsfeil; bytt til mps hvis for tregt.
-    pipe.to(torch.device("cpu"))
+    # MPS når den finnes: målt 2026-09-08 (#17) byte-identisk diar.json mot
+    # CPU på 16 og 61 min, ~7× raskere. CPU-fallback for maskiner uten MPS.
+    pipe.to(torch.device("mps" if torch.backends.mps.is_available() else "cpu"))
     if PROGRESS == "json":
         # pyannotes egen ProgressHook er rich-basert og skriver til stdout —
         # den ville blandet seg med JSON-linjene. Hooken er bare en callable.
