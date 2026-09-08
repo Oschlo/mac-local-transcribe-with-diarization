@@ -59,8 +59,8 @@ token at all.
 
 ## Caches & re-running
 
-Everything in `work/` is a cache. `*.diar.json` is the expensive one (~CPU
-minutes); it's kept so re-runs skip diarization. To fix a mis-detected
+Everything in `work/` is a cache. `*.diar.json` is the expensive one (minutes
+on a long meeting); it's kept so re-runs skip diarization. To fix a mis-detected
 language, edit `work/<base>.speaker_lang.json` and re-run — only transcription
 re-runs, fast. Delete a cache file to force that step again.
 
@@ -78,8 +78,10 @@ weights already downloaded:
 tid: lyd 0s · diarization 4m37s · språk 5s · transkribering 1m17s
 ```
 
-6m02s total, **76 % of it diarization**. Don't reason about the ratio from
-transcription speed — step 2 is CPU-bound by choice, step 4 is not.
+6m02s total, **76 % of it diarization** — that is the retired CPU baseline,
+kept because it shows where the time goes. Step 2 is on MPS since 2026-09-08
+(~7×, see above); step 4 was on the GPU via MLX all along. Don't reason about
+the ratio from transcription speed.
 
 ## Progress output has two modes
 
