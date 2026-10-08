@@ -241,9 +241,16 @@ def ts(sec, sep=","):
     return f"{h:02d}:{m:02d}:{s:02d}{sep}{ms:03d}"
 
 
-def write_outputs(segs, base):
+def front_matter(src):
+    """Øverst i TXT, så en agent finner opptaket igjen. Bare filnavnet: fila kan
+    flyttes. JSON-quoting er gyldig YAML og tåler kolon og «"» i navnet."""
+    return f"---\nkilde: {json.dumps(os.path.basename(src), ensure_ascii=False)}\n---\n\n"
+
+
+def write_outputs(segs, base, src):
     json.dump(segs, open(base + ".json", "w"), ensure_ascii=False, indent=2)
     with open(base + ".txt", "w") as f:
+        f.write(front_matter(src))
         for s in segs:
             f.write(f"[{ts(s['start'], '.')[:-4]}] {s['speaker']} ({s['language']}): {s['text']}\n")
     with open(base + ".srt", "w") as f:
@@ -320,7 +327,7 @@ def main():
         # ferdig, uansett hvor i loopen avbruddet traff.
         out = sorted((r for r in resumable(partial, segs, langs).values() if r["text"]),
                      key=lambda r: r["start"])
-        write_outputs(out, out_base)
+        write_outputs(out, out_base, args.src)
         if PROGRESS == "json":
             jprint(event="interrupted", segments=len(out), output=out_base,
                    resumable=True)
@@ -330,7 +337,7 @@ def main():
         raise
     timings["transkribering"] = time.monotonic() - t
 
-    write_outputs(out, out_base)
+    write_outputs(out, out_base, args.src)
     if os.path.exists(partial):
         os.remove(partial)   # kjøringen fullførte; ingenting å gjenoppta
     if PROGRESS == "json":
@@ -351,6 +358,8 @@ def _selfcheck():
                  f"  PATH={os.environ.get('PATH', '')}")
 
     assert ts(3661.5) == "01:01:01,500", ts(3661.5)
+    assert front_matter("/x/Møte: \"plan\".m4a") == '---\nkilde: "Møte: \\"plan\\".m4a"\n---\n\n', \
+        front_matter("/x/Møte: \"plan\".m4a")
     assert merge_segments([
         {"start": 0, "end": 1, "speaker": "A"},
         {"start": 1.2, "end": 2, "speaker": "A"},

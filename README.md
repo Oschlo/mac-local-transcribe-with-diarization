@@ -173,9 +173,13 @@ network.
 | `output/recording.srt` | subtitles |
 | `output/recording.json` | full structured output (start, end, speaker, language, text) |
 
-Example `.txt`:
+Example `.txt` — the front matter names the source recording (file name only, since files move):
 
 ```
+---
+kilde: "recording.m4a"
+---
+
 [00:00:04] SPEAKER_00 (sv): Väldigt många människor som ska försöka förstå sig på det.
 [00:00:38] SPEAKER_01 (no): Nå er du inne på veldig mye spennende her.
 ```
