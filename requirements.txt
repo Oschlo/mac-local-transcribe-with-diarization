@@ -7,3 +7,7 @@ numpy
 # transitiv via pyannote (som bare krever >=0.28.1), men eksplisitt her fordi
 # README ber deg kjøre `hf auth login`: `hf`-kommandoen kom først i 0.34.
 huggingface_hub>=0.34
+# transitiv via pyannote, men eksplisitt her fordi ≤ 0.15 bare har
+# biblioteker for FFmpeg 4–8. Mot Homebrews FFmpeg 9 feiler steg 2 med
+# «NameError: name 'AudioDecoder' is not defined». 0.16 la til FFmpeg 9.
+torchcodec>=0.16
